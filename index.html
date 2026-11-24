@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Descargar música</title>
+<style>
+:root{--bg:#1d1228;--card:#2a1b3a;--line:#4a3563;--text:#f3ecff;--mute:#a996c4;--acc:#c28bff;--ok:#7be0a8;--err:#ff8a9b}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:var(--bg);color:var(--text);font:16px/1.5 "Trebuchet MS",system-ui,sans-serif;display:flex;justify-content:center;padding:28px 16px}
+main{width:100%;max-width:520px}
+h1{font-size:2rem;margin:0 0 4px;letter-spacing:-.5px}
+p.sub{margin:0 0 22px;color:var(--mute)}
+.box{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px}
+input{width:100%;padding:14px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--text);font:inherit}
+input:focus,button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.row{display:flex;gap:8px;margin-top:12px}
+.tab{flex:1;padding:10px;border-radius:12px;border:1px solid var(--line);background:transparent;color:var(--mute);font:inherit;cursor:pointer}
+.tab[aria-pressed=true]{background:var(--acc);color:#1d1228;border-color:var(--acc);font-weight:700}
+.go{width:100%;margin-top:12px;padding:14px;border:0;border-radius:12px;background:var(--acc);color:#1d1228;font:inherit;font-weight:700;cursor:pointer}
+.go:disabled{opacity:.6;cursor:wait}
+#out{margin-top:18px}
+#out img{width:100%;border-radius:12px;display:block}
+#out h2{font-size:1.05rem;margin:10px 0 2px}
+.status{color:var(--mute);font-size:.9rem;margin-top:10px}
+.err{color:var(--err)}
+.ok{color:var(--ok)}
+audio,video{width:100%;margin-top:10px}
+a.dl{display:block;text-align:center;margin-top:10px;padding:13px;border-radius:12px;border:2px solid var(--ok);color:var(--ok);text-decoration:none;font-weight:700}
+small{display:block;margin-top:18px;color:var(--mute)}
+</style>
+</head>
+<body>
+<main>
+<h1>Descargar música 🐈</h1>
+<p class="sub">Pega un enlace de YouTube y elige audio o video.</p>
+<div class="box">
+<input id="url" type="url" placeholder="https://youtu.be/..." autocomplete="off" aria-label="Enlace de YouTube">
+<div class="row">
+<button class="tab" id="tA" aria-pressed="true">Audio MP3</button>
+<button class="tab" id="tV" aria-pressed="false">Video MP4</button>
+</div>
+<button class="go" id="go">Buscar descarga</button>
+<div id="out" aria-live="polite"></div>
+</div>
+<small>Usa solo contenido que tengas derecho a descargar. Los servicios de descarga pueden fallar o bloquear el acceso desde el navegador.</small>
+</main>
+<script>
+// APIs tomadas de plugins/descargas-yt_play.js del bot. Cambia llaves o agrega las tuyas aquí.
+const APIS = {
+  audio: [
+    {n:'neoxr', u:v=>`https://api.neoxr.eu/api/youtube?url=${v}&type=audio&quality=128kbps&apikey=GataDios`, x:d=>d?.data?.url},
+    {n:'stellar', u:v=>`https://api.stellarwa.xyz/dow/ytmp3?url=${v}&key=GataDios`, x:d=>d?.data?.dl},
+    {n:'delirius', u:v=>`https://api.delirius.store/download/ytmp3?url=${v}`, x:d=>d?.status?d.data?.download?.url:null},
+    {n:'zenkey', u:v=>`https://api.zenkey.my.id/api/download/ytmp3?apikey=zenkey&url=${v}`, x:d=>d?.result?.download?.url}
+  ],
+  video: [
+    {n:'siputzx', u:v=>`https://api.siputzx.my.id/api/d/ytmp4?url=${v}`, x:d=>d?.dl},
+    {n:'neoxr', u:v=>`https://api.neoxr.eu/api/youtube?url=${v}&type=video&quality=720p&apikey=GataDios`, x:d=>d?.data?.url},
+    {n:'stellar', u:v=>`https://api.stellarwa.xyz/dow/ytmp4?url=${v}&key=GataDios`, x:d=>d?.data?.dl},
+    {n:'delirius', u:v=>`https://api.delirius.store/download/ytmp4?url=${v}`, x:d=>d?.status?d.data?.download?.url:null},
+    {n:'exonity', u:v=>`https://exonity.tech/api/ytdlp2-faster?apikey=adminsepuh&url=${v}`, x:d=>d?.result?.media?.mp4}
+  ]
+};
+let mode='audio';
+const $=id=>document.getElementById(id), out=$('out');
+function setMode(m){mode=m;$('tA').setAttribute('aria-pressed',m==='audio');$('tV').setAttribute('aria-pressed',m==='video')}
+$('tA').onclick=()=>setMode('audio'); $('tV').onclick=()=>setMode('video');
+function ytId(u){const m=u.match(/(?:youtu\.be\/|v=|shorts\/|embed\/)([\w-]{11})/);return m?m[1]:null}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function timeout(ms){const c=new AbortController();setTimeout(()=>c.abort(),ms);return c.signal}
+
+$('go').onclick=async()=>{
+  const raw=$('url').value.trim(), id=ytId(raw);
+  if(!id){out.innerHTML='<p class="status err">El enlace no es válido. Debe ser de YouTube, por ejemplo https://youtu.be/xxxxxxxxxxx</p>';return}
+  const link=`https://youtu.be/${id}`, enc=encodeURIComponent(link);
+  const btn=$('go'); btn.disabled=true; btn.textContent='Buscando...';
+  let title='';
+  try{const r=await fetch(`https://noembed.com/embed?url=${enc}`,{signal:timeout(8000)});title=(await r.json()).title||''}catch(e){}
+  out.innerHTML=`<img alt="" src="https://img.youtube.com/vi/${id}/hqdefault.jpg"><h2>${esc(title||link)}</h2><p class="status" id="st">Probando servidores...</p>`;
+  let found=null;
+  for(const api of APIS[mode]){
+    $('st').textContent=`Probando ${api.n}...`;
+    try{
+      const r=await fetch(api.u(enc),{signal:timeout(20000)});
+      const d=await r.json(); const f=api.x(d);
+      if(f){found=f;break}
+    }catch(e){/* siguiente API */}
+  }
+  if(found){
+    const safe=esc(found), name=esc((title||'descarga').replace(/[\\/:*?"<>|]/g,'')+(mode==='audio'?'.mp3':'.mp4'));
+    out.innerHTML+=(mode==='audio'?`<audio controls src="${safe}"></audio>`:`<video controls src="${safe}"></video>`)+`<a class="dl" href="${safe}" download="${name}" target="_blank" rel="noopener">Descargar ${mode==='audio'?'MP3':'MP4'}</a>`;
+    $('st').className='status ok'; $('st').textContent='Listo. Si no se descarga directo, mantén pulsado el enlace y elige guardar.';
+  }else{
+    $('st').className='status err'; $('st').textContent='Ninguna API respondió. Puede ser bloqueo del navegador (CORS) o que el servicio esté caído. Intenta de nuevo o usa el bot.';
+  }
+  btn.disabled=false; btn.textContent='Buscar descarga';
+};
+$('url').addEventListener('keydown',e=>{if(e.key==='Enter')$('go').click()});
+</script>
+</body>
+</html>
